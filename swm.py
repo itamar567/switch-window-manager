@@ -1,8 +1,10 @@
 from Xlib import X
-from Xlib.display import Display, colormap
-import subprocess
+from Xlib.display import Display
 import time
-
+from multiprocessing.connection import Listener
+import threading
+from Preferences import Preferences
+# TODO: add supoort for changing mode with no active windows
 
 class WindowSize:
     def __init__(self, width, height):
@@ -105,14 +107,43 @@ class SWM:
         self.active_window_order.append(window)
         window.window.map()  # map the new window
 
+    def set_mode(self, mode):
+        if self.mode == mode: return
+
+        if self.mode == "Horizontal":
+            window = self.active_window_order[-1]
+            window.index_h += 1
+            self.horizontal_windows.append([window])
+        elif self.mode == "Vertical":
+            window = self.active_window_order[-1]
+            window.index_v += 1
+            self.vertical_windows.append([window])
+
+        self.mode = mode
+
+    def check_for_new_actions(self):
+        server = self.listener.accept()
+        action = server.recv()
+
+        if action[0] == 'mode':
+            self.set_mode(action[1])
+
+        # after an action is completed, re-run the function to check for new actions
+        self.check_for_new_actions()
+
+    def handle_events(self):
+        if self.display.pending_events() > 0:
+            event = self.display.next_event()
+            if event.type == X.MapRequest: self.map_window(event)
+
     def mainloop(self):
         while True:
-            if self.display.pending_events() > 0:
-                event = self.display.next_event()
-                if event.type == X.MapRequest: self.map_window(event)
+            self.check_for_new_actions()
+            self.handle_events()
             time.sleep(0.1)
 
     def __init__(self):
+        # Initialize Xorg 
         self.display = Display()  # initialize display
         self.colormap = self.display.screen().default_colormap  # initialize colormap
         self.screen = self.display.screen().root  # get screen
@@ -120,7 +151,14 @@ class SWM:
         self.screen_width = self.screen.get_geometry().width
         self.screen_height = self.screen.get_geometry().height
         self.screen.change_attributes(event_mask=X.SubstructureRedirectMask)
-        self.mainloop()  # start main loop
+
+        # Initialize listener (to enable calls from other scripts executed by sxhkd)
+        self.listener = Listener(Preferences.address)
+        listener_thread = threading.Thread(self.check_for_new_actions())
+        listener_thread.start()
+
+        # start main loop
+        self.mainloop()
 
 
 switch_wm = SWM()
