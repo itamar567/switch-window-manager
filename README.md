@@ -1,2 +1,2 @@
 # Switch Window Manager
-A window manager written in python. Currently in development.
+My attempt at creating a X11 windows manager with python. incomplete.
